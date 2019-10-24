@@ -18,7 +18,7 @@
 import argparse
 import logging
 import math
-import os
+import os, sys
 import time
 
 from gluoncv.model_zoo import get_model
@@ -90,6 +90,8 @@ parser.add_argument('--log-interval', type=int, default=0,
 parser.add_argument('--save-frequency', type=int, default=0,
                     help='frequency of model saving (default: 0)')
 
+parser.add_argument('--num-iterations', type=int, default=-1,
+                    help='the total iterations for running scaling benchmark, default=-1')
 
 args = parser.parse_args()
 
@@ -328,13 +330,17 @@ def train_gluon():
     loss_fn = gluon.loss.SoftmaxCrossEntropyLoss()
     metric = mx.metric.Accuracy()
 
+    count_down = 0 if args.num_iterations == -1 else args.num_iterations
+    count_step = 1 if count_down > 0 else 0
+
+    time_to_train = time.time()
     # Train model
     for epoch in range(args.num_epochs):
         tic = time.time()
         if args.use_rec:
             train_data.reset()
         metric.reset()
-
+        
         btic = time.time()
         for nbatch, batch in enumerate(train_data, start=1):
             data, label = get_data_label(batch, context)
@@ -355,6 +361,12 @@ def train_gluon():
                                  epoch, nbatch, batch_speed)
                 btic = time.time()
 
+            count_down -= count_step
+            if count_down < 0:
+                print("Warning: Completed all iterations running for scaling benchmark. Now shutdowing horovod...")
+                hvd.shutdown()
+                sys.exit()
+
         # Report metrics
         elapsed = time.time() - tic
         _, acc = metric.get()
@@ -371,6 +383,9 @@ def train_gluon():
         # Save model
         if args.save_frequency and (epoch + 1) % args.save_frequency == 0:
             net.export('%s-%d' % (args.model, rank), epoch=epoch)
+
+    time_to_train = time.time() - time_to_train
+    print("Successfully completed training with %d epochs, TTT (Time-to-Train) = %f hours" % (args.num_epochs, time_to_train/3600.0))
 
     # Evaluate performance at the end of training
     evaluate(epoch)
