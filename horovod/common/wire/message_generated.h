@@ -42,9 +42,10 @@ enum DataType {
   DataType_HOROVOD_INT32 = 4,
   DataType_HOROVOD_INT64 = 5,
   DataType_HOROVOD_FLOAT16 = 6,
-  DataType_HOROVOD_FLOAT32 = 7,
-  DataType_HOROVOD_FLOAT64 = 8,
-  DataType_HOROVOD_BOOL = 9,
+  DataType_HOROVOD_BF16 = 7,
+  DataType_HOROVOD_FLOAT32 = 8,
+  DataType_HOROVOD_FLOAT64 = 9,
+  DataType_HOROVOD_BOOL = 10,
   DataType_MIN = DataType_HOROVOD_UINT8,
   DataType_MAX = DataType_HOROVOD_BOOL
 };
@@ -58,6 +59,7 @@ inline const DataType (&EnumValuesDataType())[10] {
     DataType_HOROVOD_INT32,
     DataType_HOROVOD_INT64,
     DataType_HOROVOD_FLOAT16,
+    DataType_HOROVOD_BF16,
     DataType_HOROVOD_FLOAT32,
     DataType_HOROVOD_FLOAT64,
     DataType_HOROVOD_BOOL
@@ -74,6 +76,7 @@ inline const char * const *EnumNamesDataType() {
     "HOROVOD_INT32",
     "HOROVOD_INT64",
     "HOROVOD_FLOAT16",
+    "HOROVOD_BF16",
     "HOROVOD_FLOAT32",
     "HOROVOD_FLOAT64",
     "HOROVOD_BOOL",

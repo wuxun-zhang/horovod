@@ -29,6 +29,8 @@ const DataType TensorUtil::GetDType(NDArray* tensor) {
     return DataType::HOROVOD_FLOAT64;
   case mshadow::kFloat16:
     return DataType::HOROVOD_FLOAT16;
+  case mshadow::kBfloat16:
+    return DataType::HOROVOD_BF16;
   case mshadow::kUint8:
     return DataType::HOROVOD_UINT8;
   case mshadow::kInt32:
@@ -64,6 +66,8 @@ const void* TensorUtil::GetData(NDArray* tensor) {
     return static_cast<void*>(tensor->data().dptr<double>());
   case mshadow::kFloat16:
     return static_cast<void*>(tensor->data().dptr<mshadow::half::half_t>());
+  case mshadow::kBfloat16:
+    return static_cast<void*>(tensor->data().dptr<mshadow::bfloat::bf16_t>());
   case mshadow::kUint8:
     return static_cast<void*>(tensor->data().dptr<uint8_t>());
   case mshadow::kInt32:
@@ -90,6 +94,9 @@ int64_t TensorUtil::GetSize(NDArray* tensor) {
     break;
   case mshadow::kFloat16:
     element_size = kFloat16Size;
+    break;
+  case mshadow::kBfloat16:
+    element_size = kBfloat16Size;
     break;
   case mshadow::kUint8:
     element_size = kUInt8Size;

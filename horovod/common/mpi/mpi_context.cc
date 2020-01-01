@@ -47,6 +47,8 @@ MPI_Datatype MPIContext::GetMPIDataType(const DataType dtype) {
     return MPI_INT64_T;
   case HOROVOD_FLOAT16:
     return mpi_float16_t;
+  case HOROVOD_BF16:
+    return mpi_bf16_t;
   case HOROVOD_FLOAT32:
     return MPI_FLOAT;
   case HOROVOD_FLOAT64:
@@ -60,7 +62,15 @@ MPI_Datatype MPIContext::GetMPIDataType(const DataType dtype) {
 }
 
 MPI_Op MPIContext::GetMPISumOp(DataType dtype) {
-  return dtype == HOROVOD_FLOAT16 ? mpi_float16_sum : MPI_SUM;
+  switch (dtype) {
+    case HOROVOD_FLOAT16:
+      return mpi_float16_sum;
+    case HOROVOD_BF16:
+      return mpi_bf16_sum;
+    default:
+      return MPI_SUM;
+  }
+  // return dtype == HOROVOD_FLOAT16 ? mpi_float16_sum : MPI_SUM;
 }
 
 MPI_Comm MPIContext::GetMPICommunicator(Communicator comm) {
@@ -161,6 +171,13 @@ void MPIContext::Initialize(const std::vector<int>& ranks,
 
   // Create custom MPI float16 summation op.
   MPI_Op_create(&float16_sum, 1, &mpi_float16_sum);
+
+  // Create custom MPI bf16 data type.
+  MPI_Type_contiguous(2, MPI_BYTE, &mpi_bf16_t);
+  MPI_Type_commit(&mpi_bf16_t);
+
+  // Create custom MPI bf16 summation op.
+  MPI_Op_create(&bf16_sum, 1, &mpi_bf16_sum);
 }
 
 void MPIContext::Finalize(MPIContextManager& ctx_manager) {
@@ -185,6 +202,14 @@ void MPIContext::Finalize(MPIContextManager& ctx_manager) {
 
   if (mpi_float16_sum != MPI_OP_NULL) {
     MPI_Op_free(&mpi_float16_sum);
+  }
+
+  if (mpi_bf16_t != MPI_DATATYPE_NULL) {
+    MPI_Type_free(&mpi_bf16_t);
+  }
+
+  if (mpi_bf16_sum != MPI_OP_NULL) {
+    MPI_Op_free(&mpi_bf16_sum);
   }
 
   if (should_finalize) {

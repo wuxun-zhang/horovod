@@ -47,6 +47,9 @@ const std::string& DataType_Name(DataType value) {
     case HOROVOD_FLOAT16:
       static const std::string float16("float16");
       return float16;
+    case HOROVOD_BF16:
+      static const std::string bfloat16("bf16");
+      return bf16;
     case HOROVOD_FLOAT32:
       static const std::string float32("float32");
       return float32;
