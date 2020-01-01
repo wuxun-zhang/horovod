@@ -30,6 +30,7 @@ from horovod.mxnet.mpi_ops import size, local_size, rank, local_rank
 from horovod.mxnet.mpi_ops import mpi_threads_supported, mpi_enabled, mpi_built
 from horovod.mxnet.mpi_ops import gloo_enabled, gloo_built
 from horovod.mxnet.mpi_ops import nccl_built, ddl_built, ccl_built
+from horovod.mxnet.compression import *
 
 import mxnet as mx
 import types
@@ -83,7 +84,7 @@ class DistributedOptimizer(mx.optimizer.Optimizer):
 # 2. DistributedTrainer performs allreduce(summation) and average
 #    while Trainer only performs allreduce(summation).
 class DistributedTrainer(mx.gluon.Trainer):
-    def __init__(self, params, optimizer, optimizer_params=None):
+    def __init__(self, params, optimizer, compressor, optimizer_params=None):
         if isinstance(optimizer, DistributedOptimizer):
             optimizer = optimizer._optimizer
             warnings.warn("DistributedTrainer does not take DistributedOptimizer "
@@ -97,13 +98,49 @@ class DistributedTrainer(mx.gluon.Trainer):
         # average in allreduce, has better performance. 
         self._scale /= size()
 
+        self._compressor = compressor
+        self._compress_ctx = dict()
+
     def _allreduce_grads(self):
         # sort needed for Python < 3.6 is not guaranteed
         for i, param in enumerate(sorted(self._params, key=lambda p: p.name)):
             if param.grad_req != 'null':
-                allreduce_(param.list_grad()[0], average=False,
+                # compress fp32 param
+                param_compressed, ctx = self._compressor.compress(param)
+                self._compress_ctx[param.name] = ctx
+                allreduce_(param_compressed.list_grad()[0], average=False,
                            name=str(i), priority=-i)
 
+    def _update(self, ignore_stale_grad=False):
+        updates = [[] for _ in self._updaters]
+
+        for i, param in enumerate(self._params):
+            if param.grad_req == 'null':
+                continue
+
+            if not ignore_stale_grad:
+                for data in param._check_and_get(param._data, list):
+                    if not data._fresh_grad:
+                        raise UserWarning(
+                            "Gradient of Parameter `%s` on context %s has not been updated "
+                            "by backward since last `step`. This could mean a bug in your "
+                            "model that made it only use a subset of the Parameters (Blocks) "
+                            "for this iteration. If you are intentionally only using a subset, "
+                            "call step with ignore_stale_grad=True to suppress this "
+                            "warning and skip updating of Parameters with stale gradient" \
+                            %(param.name, str(data.context)))
+
+            for upd, arr, grad in zip(updates, param.list_data(), param.list_grad()):
+                if not ignore_stale_grad or arr._fresh_grad:
+                    upd.append((i, grad, arr))
+                    arr._fresh_grad = False
+
+        for updater, upd in zip(self._updaters, updates):
+            if upd:
+                i, w, g = zip(*upd)
+                # decompress low-bit param
+                w = self._compressor.decompress(w, self._compress_ctx[w.name])
+                updater(i, w, g)
 
 # Wrapper to inject Horovod broadcast after parameter initialization
 def _append_broadcast_init(param, root_rank):
