@@ -23,6 +23,7 @@
 
 #include "../common.h"
 #include "../half.h"
+#include "../bf16.h"
 #include "../logging.h"
 
 namespace horovod {

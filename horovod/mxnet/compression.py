@@ -31,7 +31,6 @@ class Compressor(object):
         """Decompress the tensor with the given context."""
         pass
 
-
 class NoneCompressor(Compressor):
     """Default no-op compression."""
     @staticmethod
@@ -43,7 +42,6 @@ class NoneCompressor(Compressor):
     def decompress(tensor, ctx):
         """Returns the tensor unmodified."""
         return tensor
-
 
 class BF16Compressor(Compressor):
     """Compress all floating point gradients to bfloat 16bit."""

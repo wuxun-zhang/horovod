@@ -118,7 +118,7 @@ def get_supported_instruction_set_flags(flags_to_check):
 def get_cpp_flags(build_ext):
     last_err = None
     default_flags = ['-std=c++11', '-fPIC', '-O2', '-Wall', '-fassociative-math', '-ffast-math', '-ftree-vectorize', '-funsafe-math-optimizations']
-    avx_fma_flags = get_supported_instruction_set_flags(['-mf16c', '-mavx', '-mfma'])
+    avx_fma_flags = get_supported_instruction_set_flags(['-mf16c', '-mavx', '-mavx512f', '-mfma'])
     if sys.platform == 'darwin':
         # Darwin most likely will have Clang, which has libc++.
         flags_to_try = [default_flags + ['-stdlib=libc++'] + avx_fma_flags,
@@ -1051,7 +1051,8 @@ def build_mx_extension(build_ext, global_options):
     mxnet_mpi_lib.define_macros += [('MSHADOW_USE_F16C', '0')]
     mxnet_mpi_lib.include_dirs = options['INCLUDES']
     mxnet_mpi_lib.sources = options['SOURCES'] + \
-                            ['horovod/mxnet/mpi_ops.cc',
+                            ['horovod/common/bf16.cc',
+                             'horovod/mxnet/mpi_ops.cc',
                              'horovod/mxnet/tensor_util.cc',
                              'horovod/mxnet/cuda_util.cc',
                              'horovod/mxnet/adapter.cc']

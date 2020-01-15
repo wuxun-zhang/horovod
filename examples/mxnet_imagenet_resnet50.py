@@ -90,6 +90,11 @@ parser.add_argument('--log-interval', type=int, default=0,
 parser.add_argument('--save-frequency', type=int, default=0,
                     help='frequency of model saving (default: 0)')
 
+# for synthentic benchmark
+parser.add_argument('--num-training-samples', type=int, default=500,
+                    help='number of benchmark iterations')
+parser.add_argument('--low-precision-allreduce', type=str, default='bf16',
+                    choices=['fp16', 'bf16'], help='use low precision 16-bit compression during allreduce')
 
 args = parser.parse_args()
 
@@ -103,7 +108,7 @@ rank = hvd.rank()
 local_rank = hvd.local_rank()
 
 num_classes = 1000
-num_training_samples = 1281167
+num_training_samples = args.num_training_samples
 batch_size = args.batch_size
 epoch_size = \
     int(math.ceil(int(num_training_samples // num_workers) / batch_size))
@@ -322,6 +327,8 @@ def train_gluon():
     opt = mx.optimizer.create('sgd', **optimizer_params)
 
     # Horovod: create DistributedTrainer, a subclass of gluon.Trainer
+    compressor = hvd.Compression.bf16 if args.low_precision_allreduce == 'bf16' else hvd.Compression.none
+    # trainer = hvd.DistributedTrainer(params, opt, compressor)
     trainer = hvd.DistributedTrainer(params, opt)
 
     # Create loss function and train metric

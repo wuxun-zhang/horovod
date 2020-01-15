@@ -50,7 +50,7 @@ enum DataType {
   DataType_MAX = DataType_HOROVOD_BOOL
 };
 
-inline const DataType (&EnumValuesDataType())[10] {
+inline const DataType (&EnumValuesDataType())[11] {
   static const DataType values[] = {
     DataType_HOROVOD_UINT8,
     DataType_HOROVOD_INT8,

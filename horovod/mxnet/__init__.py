@@ -84,7 +84,7 @@ class DistributedOptimizer(mx.optimizer.Optimizer):
 # 2. DistributedTrainer performs allreduce(summation) and average
 #    while Trainer only performs allreduce(summation).
 class DistributedTrainer(mx.gluon.Trainer):
-    def __init__(self, params, optimizer, compressor, optimizer_params=None):
+    def __init__(self, params, optimizer, compressor=None, optimizer_params=None):
         if isinstance(optimizer, DistributedOptimizer):
             optimizer = optimizer._optimizer
             warnings.warn("DistributedTrainer does not take DistributedOptimizer "
@@ -106,9 +106,11 @@ class DistributedTrainer(mx.gluon.Trainer):
         for i, param in enumerate(sorted(self._params, key=lambda p: p.name)):
             if param.grad_req != 'null':
                 # compress fp32 param
-                param_compressed, ctx = self._compressor.compress(param)
-                self._compress_ctx[param.name] = ctx
-                allreduce_(param_compressed.list_grad()[0], average=False,
+                if self._compressor is not None:
+                    param_compressed, ctx = self._compressor.compress(param)
+                    self._compress_ctx[param.name] = ctx
+                    param = param_compressed
+                allreduce_(param.list_grad()[0], average=False,
                            name=str(i), priority=-i)
 
     def _update(self, ignore_stale_grad=False):
@@ -139,7 +141,8 @@ class DistributedTrainer(mx.gluon.Trainer):
             if upd:
                 i, w, g = zip(*upd)
                 # decompress low-bit param
-                w = self._compressor.decompress(w, self._compress_ctx[w.name])
+                if self._compressor is not None:
+                    w = self._compressor.decompress(w, self._compress_ctx[w.name])
                 updater(i, w, g)
 
 # Wrapper to inject Horovod broadcast after parameter initialization

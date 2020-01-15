@@ -34,6 +34,9 @@ namespace common {
 
 ccl_datatype_t GetCCLDataType(const std::shared_ptr<Tensor>& tensor) {
   switch (tensor->dtype()) {
+  case HOROVOD_BF16:
+    LOG(ERROR) << "Not Implemented yet for Bfloat16 in OneCCL library";
+    return ccl_dtype_bfp16;
   case HOROVOD_FLOAT32:
     return ccl_dtype_float;
   case HOROVOD_FLOAT64:
