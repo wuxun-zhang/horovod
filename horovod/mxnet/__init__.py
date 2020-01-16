@@ -99,19 +99,22 @@ class DistributedTrainer(mx.gluon.Trainer):
         self._scale /= size()
 
         self._compressor = compressor
-        self._compress_ctx = dict()
+        self._grad_compress_ctx = dict()
 
     def _allreduce_grads(self):
         # sort needed for Python < 3.6 is not guaranteed
         for i, param in enumerate(sorted(self._params, key=lambda p: p.name)):
             if param.grad_req != 'null':
-                # compress fp32 param
+                # compress float32 param to low-precision
                 if self._compressor is not None:
-                    param_compressed, ctx = self._compressor.compress(param)
-                    self._compress_ctx[param.name] = ctx
-                    param = param_compressed
-                allreduce_(param.list_grad()[0], average=False,
-                           name=str(i), priority=-i)
+                    grad = param.list_grad()[0]
+                    grad_compressed, ctx = self._compressor.compress(grad)
+                    self._grad_compress_ctx[param.name] = ctx
+                    param.list_grad()[0] = allreduce_(grad_compressed, average=False,
+                               name=str(i), priority=-i)
+                else:
+                    allreduce_(param.list_grad()[0], average=False,
+                               name=str(i), priority=-i)
 
     def _update(self, ignore_stale_grad=False):
         updates = [[] for _ in self._updaters]
@@ -119,7 +122,6 @@ class DistributedTrainer(mx.gluon.Trainer):
         for i, param in enumerate(self._params):
             if param.grad_req == 'null':
                 continue
-
             if not ignore_stale_grad:
                 for data in param._check_and_get(param._data, list):
                     if not data._fresh_grad:
@@ -133,6 +135,10 @@ class DistributedTrainer(mx.gluon.Trainer):
                             %(param.name, str(data.context)))
 
             for upd, arr, grad in zip(updates, param.list_data(), param.list_grad()):
+                # decompress low-precision parameters
+                if self._compressor is not None:
+                    grad = self._compressor.decompress(grad, self._grad_compress_ctx[param.name])
+                
                 if not ignore_stale_grad or arr._fresh_grad:
                     upd.append((i, grad, arr))
                     arr._fresh_grad = False
@@ -140,9 +146,6 @@ class DistributedTrainer(mx.gluon.Trainer):
         for updater, upd in zip(self._updaters, updates):
             if upd:
                 i, w, g = zip(*upd)
-                # decompress low-bit param
-                if self._compressor is not None:
-                    w = self._compressor.decompress(w, self._compress_ctx[w.name])
                 updater(i, w, g)
 
 # Wrapper to inject Horovod broadcast after parameter initialization

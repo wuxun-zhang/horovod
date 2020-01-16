@@ -27,6 +27,9 @@ import mxnet as mx
 import numpy as np
 from mxnet import autograd, gluon, lr_scheduler
 from mxnet.io import DataBatch, DataIter
+from mxnet.contrib import amp
+print(amp)
+# amp.init(target_dtype="bfloat16")
 
 
 # Training settings
@@ -93,13 +96,17 @@ parser.add_argument('--save-frequency', type=int, default=0,
 # for synthentic benchmark
 parser.add_argument('--num-training-samples', type=int, default=500,
                     help='number of benchmark iterations')
-parser.add_argument('--low-precision-allreduce', type=str, default='bf16',
-                    choices=['fp16', 'bf16'], help='use low precision 16-bit compression during allreduce')
+parser.add_argument('--low-precision-allreduce', type=str, default='',
+                    choices=['', 'fp16', 'bf16'], help='use low precision 16-bit compression during allreduce')
 
 args = parser.parse_args()
 
-logging.basicConfig(level=logging.INFO)
-logging.info(args)
+streamhandler = logging.StreamHandler()
+logger = logging.getLogger('')
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    logger.addHandler(streamhandler)
+logger.info(args)
 
 # Horovod: initialize Horovod
 hvd.init()
@@ -274,7 +281,6 @@ else:
                                    np.float32, context)
     val_data = None
 
-
 # Get model from GluonCV model zoo
 # https://gluon-cv.mxnet.io/model_zoo/index.html
 kwargs = {'ctx': context,
@@ -283,7 +289,7 @@ kwargs = {'ctx': context,
 if args.last_gamma:
     kwargs['last_gamma'] = True
 net = get_model(args.model, **kwargs)
-net.cast(args.dtype)
+# net.cast(args.dtype)
 
 # Create initializer
 initializer = mx.init.Xavier(rnd_type='gaussian', factor_type="in",
@@ -306,7 +312,7 @@ def train_gluon():
 
         top1_name, top1_acc = acc_top1.get()
         top5_name, top5_acc = acc_top5.get()
-        logging.info('Epoch[%d] Rank[%d]\tValidation-%s=%f\tValidation-%s=%f',
+        logger.info('Epoch[%d] Rank[%d]\tValidation-%s=%f\tValidation-%s=%f',
                      epoch, rank, top1_name, top1_acc, top5_name, top5_acc)
 
     # Hybridize and initialize model
@@ -315,6 +321,7 @@ def train_gluon():
 
     # Horovod: fetch and broadcast parameters
     params = net.collect_params()
+
     if params is not None:
         hvd.broadcast_parameters(params, root_rank=0)
 
@@ -322,14 +329,15 @@ def train_gluon():
     optimizer_params = {'wd': args.wd,
                         'momentum': args.momentum,
                         'lr_scheduler': lr_sched}
-    if args.dtype == 'float16':
+    if args.dtype != 'float32':
         optimizer_params['multi_precision'] = True
     opt = mx.optimizer.create('sgd', **optimizer_params)
 
     # Horovod: create DistributedTrainer, a subclass of gluon.Trainer
-    compressor = hvd.Compression.bf16 if args.low_precision_allreduce == 'bf16' else hvd.Compression.none
-    # trainer = hvd.DistributedTrainer(params, opt, compressor)
-    trainer = hvd.DistributedTrainer(params, opt)
+    compressor = None
+    if not args.low_precision_allreduce == '':
+        compressor = hvd.Compression.bf16 if args.low_precision_allreduce == 'bf16' else hvd.Compression.none
+    trainer = hvd.DistributedTrainer(params, opt, compressor)
 
     # Create loss function and train metric
     loss_fn = gluon.loss.SoftmaxCrossEntropyLoss()
@@ -338,6 +346,8 @@ def train_gluon():
     # Train model
     for epoch in range(args.num_epochs):
         tic = time.time()
+
+        args.use_rec = True
         if args.use_rec:
             train_data.reset()
         metric.reset()
@@ -354,22 +364,22 @@ def train_gluon():
             metric.update([label], [output])
             if args.log_interval and nbatch % args.log_interval == 0:
                 name, acc = metric.get()
-                logging.info('Epoch[%d] Rank[%d] Batch[%d]\t%s=%f\tlr=%f',
+                logger.info('Epoch[%d] Rank[%d] Batch[%d]\t%s=%f\tlr=%f',
                              epoch, rank, nbatch, name, acc, trainer.learning_rate)
                 if rank == 0:
                     batch_speed = num_workers * batch_size * args.log_interval / (time.time() - btic)
-                    logging.info('Epoch[%d] Batch[%d]\tSpeed: %.2f samples/sec',
+                    logger.info('Epoch[%d] Batch[%d]\tSpeed: %.2f samples/sec',
                                  epoch, nbatch, batch_speed)
                 btic = time.time()
 
         # Report metrics
         elapsed = time.time() - tic
         _, acc = metric.get()
-        logging.info('Epoch[%d] Rank[%d] Batch[%d]\tTime cost=%.2f\tTrain-accuracy=%f',
+        logger.info('Epoch[%d] Rank[%d] Batch[%d]\tTime cost=%.2f\tTrain-accuracy=%f',
                      epoch, rank, nbatch, elapsed, acc)
         if rank == 0:
             epoch_speed = num_workers * batch_size * nbatch / elapsed
-            logging.info('Epoch[%d]\tSpeed: %.2f samples/sec', epoch, epoch_speed)
+            logger.info('Epoch[%d]\tSpeed: %.2f samples/sec', epoch, epoch_speed)
 
         # Evaluate performance
         if args.eval_frequency and (epoch + 1) % args.eval_frequency == 0:
@@ -466,7 +476,7 @@ def train_module():
         acc_top5 = mx.metric.TopKAccuracy(5)
         res = mod.score(val_data, [acc_top1, acc_top5])
         for name, val in res:
-            logging.info('Epoch[%d] Rank[%d] Validation-%s=%f',
+            logger.info('Epoch[%d] Rank[%d] Validation-%s=%f',
                          args.num_epochs - 1, rank, name, val)
 
 
@@ -475,5 +485,6 @@ if __name__ == '__main__':
         train_module()
     elif args.mode == 'gluon':
         train_gluon()
+        # hvd.shutdown()
     else:
         raise ValueError('Invalid training mode.')
